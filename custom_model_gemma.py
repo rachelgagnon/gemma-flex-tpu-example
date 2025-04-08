@@ -31,11 +31,11 @@ import torch
 
 class GemmaPytorchModelHandler(ModelHandler[str, PredictionResult, GemmaForCausalLM]):
     def __init__(
-        self,
-        model_variant: str,
-        checkpoint_path: str,
-        tokenizer_path: str,
-        device: str | None = "cpu",
+            self,
+            model_variant: str,
+            checkpoint_path: str,
+            tokenizer_path: str,
+            device: str | None = "cpu",
     ):
         """Implementation of the ModelHandler interface for Gemma-on-Pytorch
         using text as input.
@@ -60,7 +60,10 @@ class GemmaPytorchModelHandler(ModelHandler[str, PredictionResult, GemmaForCausa
 
         self._model_config = model_config
         self._checkpoint_path = checkpoint_path
-        if device == "GPU":
+        if device == "TPU":
+            logging.info("Device is set to TPU")
+            self._device = xm.xla_device()
+        elif device == "GPU":
             logging.info("Device is set to CUDA")
             self._device = torch.device("cuda")
         else:
@@ -83,10 +86,10 @@ class GemmaPytorchModelHandler(ModelHandler[str, PredictionResult, GemmaForCausa
         return model
 
     def run_inference(
-        self,
-        batch: Sequence[str],
-        model: GemmaForCausalLM,
-        inference_args: dict | None = None,
+            self,
+            batch: Sequence[str],
+            model: GemmaForCausalLM,
+            inference_args: dict | None = None,
     ) -> Iterable[PredictionResult]:
         """Runs inferences on a batch of text strings.
 
@@ -98,20 +101,27 @@ class GemmaPytorchModelHandler(ModelHandler[str, PredictionResult, GemmaForCausa
         Returns:
           An Iterable of type PredictionResult.
         """
-        result = model.generate(prompts=batch, device=self._device)
-        predictions = [result]
+        inputs = model.tokenizer(batch, return_tensors="pt", padding=True, truncation=True).to(self._device)
+        with torch.no_grad():
+            outputs = model.generate(**inputs)
+        predictions = [model.tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
         return [PredictionResult(x, y) for x, y in zip(batch, predictions)]
 
 
 if __name__ == "__main__":
     import argparse
+    import apache_beam as beam
+    from apache_beam.options.pipeline_options import PipelineOptions
+    import json
+    import logging
+    import torch_xla.core.xla_model as xm
+    import torch_xla.distributed.parallel_loader as pl
+
+    from gemma.config import get_config_for_2b
+    from gemma.config import get_config_for_7b
+    from gemma.model import GemmaForCausalLM
 
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--messages_subscription",
-        required=False,
-        help="Pub/Sub subscription for input text messages",
-    )
     parser.add_argument(
         "--responses_topic",
         required=True,
@@ -151,6 +161,10 @@ if __name__ == "__main__":
         beam_args,
         save_main_session=True,
         streaming=False,
+        # Options for running on TPU in Dataflow
+        worker_accelerator="TPU",
+        num_accelerators=8,  # Adjust based on the number of TPU cores you want to use
+        use_tpu=True,
     )
 
     handler = GemmaPytorchModelHandler(
@@ -162,15 +176,11 @@ if __name__ == "__main__":
 
     with beam.Pipeline(options=beam_options) as pipeline:
         _ = (
-            pipeline
-            | "Create Elements" >> beam.Create(["Tell me the sentiment of the following sentence: I like pineapple on pizza."])
-            | "Decode" >> beam.Map(lambda msg: msg.decode("utf-8"))
-            | "RunInference Gemma" >> RunInference(handler)
-            | "Format output" >> beam.Map(
-                lambda response: json.dumps(
-                    {"input": response.example, "outputs": response.inference}
-                )
-            )
-            | "Encode" >> beam.Map(lambda msg: msg.encode("utf-8"))
-            | "Publish to Pub/Sub" >> beam.io.gcp.pubsub.WriteToPubSub(topic=args.responses_topic)
+                pipeline
+                | "Create Elements" >> beam.Create(["Tell me the sentiment of the following sentence: I like pineapple on pizza."])
+                | "Decode" >> beam.Map(lambda msg: msg.decode("utf-8"))
+                | "RunInference Gemma" >> RunInference(handler)
+                | "Format output" >> beam.Map(lambda response: json.dumps({"input": response.example, "outputs": response.inference}))
+                | "Encode" >> beam.Map(lambda msg: msg.encode("utf-8"))
+                | "Publish to Pub/Sub" >> beam.io.gcp.pubsub.WriteToPubSub(topic=args.responses_topic)
         )
