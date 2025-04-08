@@ -109,7 +109,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--messages_subscription",
-        required=True,
+        required=False,
         help="Pub/Sub subscription for input text messages",
     )
     parser.add_argument(
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--device",
         required=False,
-        default="cpu",
+        default="TPU",
         help="device to run the model on",
     )
 
@@ -150,7 +150,7 @@ if __name__ == "__main__":
     beam_options = PipelineOptions(
         beam_args,
         save_main_session=True,
-        streaming=True,
+        streaming=False,
     )
 
     handler = GemmaPytorchModelHandler(
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     with beam.Pipeline(options=beam_options) as pipeline:
         _ = (
             pipeline
-            | "Subscribe to Pub/Sub" >> beam.io.ReadFromPubSub(subscription=args.messages_subscription)
+            | "Create Elements" >> beam.Create(["Tell me the sentiment of the following sentence: I like pineapple on pizza."])
             | "Decode" >> beam.Map(lambda msg: msg.decode("utf-8"))
             | "RunInference Gemma" >> RunInference(handler)
             | "Format output" >> beam.Map(

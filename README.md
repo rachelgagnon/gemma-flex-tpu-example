@@ -31,14 +31,13 @@ Using these services incurs billing charges.
 Save a version of the Gemma 2B model. Downloaded the model from Kaggle. This download is a .tar.gz archive. Extract the archive into a directory and name it pytorch_model.
 
 ### Create a cloud storage bucket
-Click here to create a GCS bucket or run the following commands:
-
-export GCS_BUCKET="your--bucket"
-gsutil mb gs://$GCS_BUCKET
-Make sure your GCS bucket name does not include the gs:// prefix
+Create a cloud storage bucket for your flex template.
 
 ### Create a custom container
-To build a custom container, use Docker. This repository contains a Dockerfile that you can use to build your custom container. To build and push a container to Artifact Registry by using Docker or Cloud Build, follow the instructions in the Build and push the image section of "Build custom container images for Dataflow" in the Google Cloud documentation.
+To build a custom container, use Docker. This repository contains a Dockerfile that you can use to build your custom container. To build and push a container to Artifact Registry by using Cloud Build.
+
+gcloud builds submit --tag us-central1-docker.pkg.dev/dataflow-build/rgagnon/gemma-tpu-image
+gcloud builds submit --tag gcr.io/dataflow-build/rgagnon/gemma-tpu-image
 
 ### Create Pub/Sub topics for input and output
 To create your Pub/Sub source and sink, follow the instructions in Create a Pub/Sub topic in the Google Cloud documentation. For this example, create two topics, one input topic and one output topic. Follow the instructions in Create pull subscriptions to create a pull subscription for each of the two topics you jsut created. The input subscription allows you to provide input to the pipeline, while the output subscription will allow you to see the output from the pipeline during and after execution.
@@ -111,27 +110,32 @@ Run the following code from the directory to build the Dataflow flex template.
 Replace $GCS_BUCKET with a Google Cloud Storage bucket.
 Set SDK_CONTAINER_IMAGE to the name of the Docker image created previously.
 $PROJECT is the Google Cloud project that you created previously.
-gcloud dataflow flex-template build gs://$GCS_BUCKET/config.json \
-  --image $SDK_CONTAINER_IMAGE \
+
+gcloud dataflow flex-template build gs://dataflow-autotuning/tpu_flex_templates/gemma-tpu-test-config.json \
+  --image us-central1-docker.pkg.dev/dataflow-build/rgagnon/gemma-image \
   --sdk-language "PYTHON" \
   --metadata-file metadata.json \
-  --project $PROJECT
+  --project dataflow-autotuning
 
 ## Start the pipeline
 To start the Dataflow streaming job, run the following code from the directory. Replace $TEMPLATE_FILE, $REGION, $GCS_BUCKET, $INPUT_SUBSCRIPTION, $OUTPUT_TOPIC, $SDK_CONTAINER_IMAGE, and $PROJECT with the Google Cloud project resources you created previously. Ensure that $INPUT_SUBSCRIPTION and $OUTPUT_TOPIC are the fully qualified subscription and topic names, respectively. It might take as much as 30 minutes for the worker to start up and to begin accepting messages from the input Pub/Sub topic.
 
 gcloud dataflow flex-template run "gemma-flex-`date +%Y%m%d-%H%M%S`" \
-  --template-file-gcs-location $TEMPLATE_FILE \
-  --region $REGION \
-  --temp-location gs://$GCS_BUCKET/tmp \
-  --staging-location gs://$GCS_BUCKET \
-  --parameters messages_subscription=$INPUT_SUBSCRIPTION \
-  --parameters responses_topic=$OUTPUT_TOPIC \
-  --parameters device="GPU" \
-  --parameters sdk_container_image=$SDK_CONTAINER_IMAGE \
-  --additional-experiments "worker_accelerator=type:nvidia-l4;count:1;install-nvidia-driver" \
-  --project $PROJECT \
-  --worker-machine-type "g2-standard-4"
+  --template-file-gcs-location gs://dataflow-autotuning/tpu_flex_templates/gemma-tpu-test-config.json \
+  --region us-central1 \
+  --temp-location gs://dataflow-autotuning/tmp \
+  --staging-location gs://dataflow-staging-us-central1-649008530395 \
+  --parameters messages_subscription=projects/data-analytics-pocs/subscriptions/gemma-input-topic-sub \
+  --parameters responses_topic=projects/data-analytics-pocs/topics/gemma-output-topic \
+  --parameters device="TPU" \
+  --parameters sdk_container_image=us-central1-docker.pkg.dev/dataflow-build/rgagnon/gemma-image \
+  --additional-experiments "worker_accelerator=type:tpu-v6e-slice;topology:2x2" \
+  --project dataflow-autotuning \
+  --additional-experiments compute_reservation_name="cloudtpu-20250402070001-1543930707" \
+  --worker-machine-type "ct6e-standard-4t"
+
+* note that this reservation is for one worker with 8 chips
+
 ## Send a prompt to the model and check the response
 In the Google Cloud console, navigate to the Pub/Sub topics page, and then select your input topic. On the Messages tab, click Publish Message. Add a message for the Dataflow job to pick up and pass through the model. For example, your input message could be "Tell the the sentiment of the following sentence: I like pineapple on pizza."
 

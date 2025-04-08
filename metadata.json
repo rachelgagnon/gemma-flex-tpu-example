@@ -5,17 +5,20 @@
         {
             "name": "messages_subscription",
             "label": "Input messages subscription",
-            "helpText": "The pub/sub subscription to pull inputs from"
+            "helpText": "The pub/sub subscription to pull inputs from",
+            "isOptional": true
         },
         {
             "name": "responses_topic",
             "label": "Output messages topic",
-            "helpText": "The pub/sub topic to push outputs to"
+            "helpText": "The pub/sub topic to push outputs to",
+            "isOptional": false
         },
         {
             "name": "device",
             "label": "Device",
-            "helpText": "The device to run inference on. Can be 'CPU' or 'GPU'."
+            "helpText": "The device to run inference on. Can be 'CPU' or 'GPU'.",
+            "isOptional": true
         },
         {
             "name": "disk_size_gb",
