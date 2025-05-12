@@ -3,12 +3,6 @@
     "description": "A flex template configuring a streaming Gemma pipeline using pytorch and pub/sub",
     "parameters": [
         {
-            "name": "messages_subscription",
-            "label": "Input messages subscription",
-            "helpText": "The pub/sub subscription to pull inputs from",
-            "isOptional": true
-        },
-        {
             "name": "responses_topic",
             "label": "Output messages topic",
             "helpText": "The pub/sub topic to push outputs to",
@@ -17,7 +11,7 @@
         {
             "name": "device",
             "label": "Device",
-            "helpText": "The device to run inference on. Can be 'CPU' or 'GPU'.",
+            "helpText": "The device to run inference on. Can be 'CPU',  or 'GPU'.",
             "isOptional": true
         },
         {

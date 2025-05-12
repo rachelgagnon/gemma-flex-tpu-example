@@ -23,9 +23,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt requirements.txt
+
 RUN pip install --no-cache-dir --upgrade pip \
     && git clone https://github.com/google/gemma_pytorch.git \
-    && pip install --no-cache-dir -r requirements.txt ./gemma_pytorch
+    && pip install --no-cache-dir -r requirements.txt ./gemma_pytorch --verbose
 
 # Copy SDK entrypoint binary from Apache Beam image, which makes it possible to
 # use the image as SDK container image.
@@ -42,15 +43,6 @@ COPY custom_model_gemma.py custom_model_gemma.py
 
 # Set environment variables.
 ENV FLEX_TEMPLATE_PYTHON_PY_FILE="custom_model_gemma.py"
-ENV TPU_SKIP_MDS_QUERY=1
-ENV TPU_HOST_BOUNDS=1,1,1
-ENV TPU_WORKER_HOSTNAMES=localhost
-ENV TPU_WORKER_ID=0
-ENV TPU_ACCELERATOR_TYPE=v6e-1 
-# update based on topology
-ENV TPU_CHIPS_PER_HOST_BOUNDS=2,2,1
-
-RUN pip install jax[tpu] apache-beam[gcp]==2.62.0  -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 
 # Set the entrypoint to Apache Beam SDK launcher.
 ENTRYPOINT ["/opt/apache/beam/boot"]

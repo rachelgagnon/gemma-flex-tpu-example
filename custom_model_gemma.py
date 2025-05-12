@@ -28,6 +28,12 @@ from gemma.model import GemmaForCausalLM
 
 import torch
 
+def print_string(element):
+    print(f"Element has type {type(element)} : {element}")
+    return element
+
+def extract_string(element):
+    return element['body']
 
 class GemmaPytorchModelHandler(ModelHandler[str, PredictionResult, GemmaForCausalLM]):
     def __init__(
@@ -62,7 +68,7 @@ class GemmaPytorchModelHandler(ModelHandler[str, PredictionResult, GemmaForCausa
         self._checkpoint_path = checkpoint_path
         if device == "TPU":
             logging.info("Device is set to TPU")
-            self._device = xm.xla_device()
+            #self._device = xm.xla_device()
         elif device == "GPU":
             logging.info("Device is set to CUDA")
             self._device = torch.device("cuda")
@@ -101,10 +107,8 @@ class GemmaPytorchModelHandler(ModelHandler[str, PredictionResult, GemmaForCausa
         Returns:
           An Iterable of type PredictionResult.
         """
-        inputs = model.tokenizer(batch, return_tensors="pt", padding=True, truncation=True).to(self._device)
-        with torch.no_grad():
-            outputs = model.generate(**inputs)
-        predictions = [model.tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
+        result = model.generate(prompts=batch, device=self._device)
+        predictions = [result]
         return [PredictionResult(x, y) for x, y in zip(batch, predictions)]
 
 
@@ -114,8 +118,8 @@ if __name__ == "__main__":
     from apache_beam.options.pipeline_options import PipelineOptions
     import json
     import logging
-    import torch_xla.core.xla_model as xm
-    import torch_xla.distributed.parallel_loader as pl
+   # import torch_xla.core.xla_model as xm
+    #import torch_xla.distributed.parallel_loader as pl
 
     from gemma.config import get_config_for_2b
     from gemma.config import get_config_for_7b
@@ -148,7 +152,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--device",
         required=False,
-        default="TPU",
+        default="GPU",
         help="device to run the model on",
     )
 
@@ -160,11 +164,7 @@ if __name__ == "__main__":
     beam_options = PipelineOptions(
         beam_args,
         save_main_session=True,
-        streaming=False,
-        # Options for running on TPU in Dataflow
-        worker_accelerator="TPU",
-        num_accelerators=8,  # Adjust based on the number of TPU cores you want to use
-        use_tpu=True,
+        streaming=False
     )
 
     handler = GemmaPytorchModelHandler(
@@ -175,12 +175,16 @@ if __name__ == "__main__":
     )
 
     with beam.Pipeline(options=beam_options) as pipeline:
+        elements = pipeline | beam.io.ReadFromBigQuery(
+                    query='SELECT body FROM bigquery-public-data.bbc_news.fulltext',
+                    use_standard_sql=True
+        )
         _ = (
-                pipeline
-                | "Create Elements" >> beam.Create(["Tell me the sentiment of the following sentence: I like pineapple on pizza."])
-                | "Decode" >> beam.Map(lambda msg: msg.decode("utf-8"))
-                | "RunInference Gemma" >> RunInference(handler)
-                | "Format output" >> beam.Map(lambda response: json.dumps({"input": response.example, "outputs": response.inference}))
-                | "Encode" >> beam.Map(lambda msg: msg.encode("utf-8"))
-                | "Publish to Pub/Sub" >> beam.io.gcp.pubsub.WriteToPubSub(topic=args.responses_topic)
+            elements
+            | "Extract string" >> beam.Map(extract_string)
+            | "Print datatype" >> beam.Map(print_string)
+            | "RunInference Gemma" >> RunInference(handler)
+            | "Format output" >> beam.Map(lambda response: json.dumps({"input": response.example, "outputs": response.inference}))
+            | "Encode" >> beam.Map(lambda msg: msg.encode("utf-8"))
+            | "Publish to Pub/Sub" >> beam.io.gcp.pubsub.WriteToPubSub(topic=args.responses_topic)
         )
