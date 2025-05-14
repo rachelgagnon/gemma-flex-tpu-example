@@ -176,7 +176,7 @@ if __name__ == "__main__":
 
     with beam.Pipeline(options=beam_options) as pipeline:
         elements = pipeline | beam.io.ReadFromBigQuery(
-                    query='select content from `dataflow-autotuning.rgagnon_sample_data.hacker_news',
+                    query='select string_field_2 from `dataflow-autotuning.rgagnon_sample_data.hacker_news LIMIT 10000',
                     use_standard_sql=True
         )
         _ = (
