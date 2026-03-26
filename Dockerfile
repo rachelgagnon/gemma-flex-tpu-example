@@ -27,7 +27,7 @@ RUN apt install libcairo2-dev pkg-config python3-dev -y
 RUN pip install pycairo
 RUN pip check
 
-RUN python3 -c 'from huggingface_hub import HfFolder; HfFolder.save_token("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")'
+RUN python3 -c 'from huggingface_hub import HfFolder; HfFolder.save_token("")'
 
 ENV TPU_SKIP_MDS_QUERY=1
 ENV TPU_HOST_BOUNDS=1,1,1
